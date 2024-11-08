@@ -32,11 +32,11 @@ jobs:
       - name: Commit README.md
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user-email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
-          git commit -m "Update README.md from readme.qmd"
+          git diff-index --quiet HEAD || git commit -m "Update README.md from readme.qmd"
           git push
         env:
-          GITHUB_TOKEN: s{{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         
         
