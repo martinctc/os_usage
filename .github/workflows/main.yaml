@@ -22,8 +22,8 @@ jobs:
           
       - name: Install R dependencies
         run: |
-        Rscript -e "install.packages('renv', repos = 'https://packagemanager.posit.co/cran/latest')"
-        Rscript -e "renv::restore(repos = 'https://packagemanager.posit.co/cran/latest')"
+          Rscript -e "install.packages('renv', repos = 'https://packagemanager.posit.co/cran/latest')"
+          Rscript -e "renv::restore(repos = 'https://packagemanager.posit.co/cran/latest')"
         
       - name: Render Quarto document
         run: |
