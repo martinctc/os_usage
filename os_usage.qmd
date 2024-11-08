@@ -66,17 +66,27 @@ if (status_code(response) == 200) {
 ```
 
 ```{r gh, echo=FALSE,message=FALSE,warning=FALSE}
-get_gh_data <- function(owner = "microsoft", repo, diff){
+# Function to get GitHub traffic data
+get_gh_data <- function(owner = "microsoft", repo, diff) {
   
+  # Set GitHub PAT
+  gh_pat <- Sys.getenv("GH_PAT")
+  
+  # Define the endpoint
   endpoint <- "GET /repos/{username}/{repo}/traffic/"
   
-  gh_json_clones <- gh(paste0(endpoint, "clones"), username = owner, repo = repo)
-  gh_json_views <- gh(paste0(endpoint, "views"), username = owner, repo = repo)
+  # Fetch clones data
+  gh_json_clones <- gh(paste0(endpoint, "clones"), username = owner, repo = repo, .token = gh_pat)
   
-  strx <- function(metric, diff){
+  # Fetch views data
+  gh_json_views <- gh(paste0(endpoint, "views"), username = owner, repo = repo, .token = gh_pat)
+  
+  # Helper function to create column names
+  strx <- function(metric, diff) {
     paste0("gh_", metric, "_", diff)
   }
   
+  # Process clones data
   gh_json_clones <- gh_json_clones %>%
     .$clones %>%
     map_dfr(as.data.frame) %>%
@@ -85,8 +95,9 @@ get_gh_data <- function(owner = "microsoft", repo, diff){
       date,
       !!sym(strx("clones", diff)) := "count",
       !!sym(strx("unique_clones", diff)) := "uniques"
-      )
+    )
   
+  # Process views data
   gh_json_views <- gh_json_views %>%
     .$views %>%
     map_dfr(as.data.frame) %>%
@@ -95,10 +106,10 @@ get_gh_data <- function(owner = "microsoft", repo, diff){
       date,
       !!sym(strx("views", diff)) := "count",
       !!sym(strx("unique_views", diff)) := "uniques"
-      )
+    )
   
-  gh_out <-
-    gh_json_clones %>%
+  # Combine clones and views data
+  gh_out <- gh_json_clones %>%
     full_join(gh_json_views, by = "date")
     
   gh_out
