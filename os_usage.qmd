@@ -19,10 +19,14 @@ knitr::opts_chunk$set(
 	message = FALSE,
 	warning = FALSE
 )
-library(reticulate)
-library(tidyverse)
+
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(shiny)
+library(readr)
 library(cranlogs)
-library(wpa)
 library(gh) # GitHub API
 library(httr)
 library(jsonlite)
@@ -234,8 +238,7 @@ ts_plot <-
         axis.title = element_text(size = 14),
         axis.text = element_text(size = 12),
         legend.title = element_text(size = 12),
-        legend.text = element_text(size = 12)) +
-  wpa::theme_wpa_basic()
+        legend.text = element_text(size = 12))
 
 plotly::ggplotly(ts_plot)
 ```
@@ -259,8 +262,7 @@ ts_plot_clones <-
         axis.title = element_text(size = 14),
         axis.text = element_text(size = 12),
         legend.title = element_text(size = 12),
-        legend.text = element_text(size = 12)) +
-  wpa::theme_wpa_basic()
+        legend.text = element_text(size = 12))
 
 plotly::ggplotly(ts_plot_clones)
 ```
@@ -284,8 +286,7 @@ ts_plot_uviews <-
         axis.title = element_text(size = 14),
         axis.text = element_text(size = 12),
         legend.title = element_text(size = 12),
-        legend.text = element_text(size = 12)) +
-  wpa::theme_wpa_basic()
+        legend.text = element_text(size = 12))
 
 plotly::ggplotly(ts_plot_uviews)
 ```
