@@ -1,8 +1,16 @@
-# GitHub Actions Test
+# Open Source Usage Automated Workflow
 
 ```{r}
 #| echo: false
 current_time <- Sys.time() |> format('%d/%m/%Y %H:%M')
 ```
+
+## Summary
+
+This repo demos an automated workflow using Quarto, R, and GitHub Actions to download usage numbers for R and Python libraries from CRAN and PyPI respectively.
+
+The report is updated every two weeks, or whenever there is a push to the `main` branch. 
+
+See `.github/workflows/main.yaml` on the GitHub Action used to run the report. 
 
 This file was rendered at `{r} current_time`.
