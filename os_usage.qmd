@@ -1,11 +1,362 @@
 ---
-title: "os_usage"
+title: "vivainsights Download/Usage Report"
+author: "Martin Chan"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 ---
 
-## Quarto
+The notebook collects, aggregates, and visualizes the download numbers for the 'vivainsights' R and Python packages:
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+- [R](https://microsoft.github.io/vivainsights/)
+- [Python](https://microsoft.github.io/vivainsights-py/)
+
+The official repositories for open-source distribution of R and Python packages are the Comprehensive R Archive Network (CRAN) and Python Package Index (PyPI) respectively. 
+
+There is no direct way to track package _usage_, but the figures can be estimated by combining documentation views and other data sources.
+
+```{r setup, echo=FALSE,message=FALSE,warning=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+library(reticulate)
+library(tidyverse)
+library(cranlogs)
+library(wpa)
+library(gh) # GitHub API
+library(httr)
+library(jsonlite)
+library(summaryBox) # remotes::install_github("deepanshu88/summaryBox")
+
+pkg_name <- "vivainsights"
+```
+
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+start_date <- as.Date("2023-08-01")
+end_date <- as.Date(Sys.Date(), format = "%Y-%m-%d")
+cran_dl <-
+  cranlogs::cran_downloads(packages = pkg_name,
+                           from = start_date,
+                           to = end_date)
+
+cran_dl <-
+  cran_dl %>%
+  dplyr::select(date, CRAN = "count")
+```
 
 ```{r}
-1 + 1
+api_endpoint <- paste0("https://pypistats.org/api/packages/", pkg_name, "/overall")
+
+response <- httr::GET(api_endpoint)
+
+if (status_code(response) == 200) {
+  data <- jsonlite::fromJSON(content(response, "text"))
+  pypi_dl <- data$data
+  
+} else {
+  
+  cat(paste0("Error: ", status_code(response), " - ", status_reason(response)))
+  
+}
 ```
+
+```{r gh, echo=FALSE,message=FALSE,warning=FALSE}
+get_gh_data <- function(owner = "microsoft", repo, diff){
+  
+  endpoint <- "GET /repos/{username}/{repo}/traffic/"
+  
+  gh_json_clones <- gh(paste0(endpoint, "clones"), username = owner, repo = repo)
+  gh_json_views <- gh(paste0(endpoint, "views"), username = owner, repo = repo)
+  
+  strx <- function(metric, diff){
+    paste0("gh_", metric, "_", diff)
+  }
+  
+  gh_json_clones <- gh_json_clones %>%
+    .$clones %>%
+    map_dfr(as.data.frame) %>%
+    mutate(date = as.Date(timestamp, format = "%Y-%m-%d")) %>%
+    select(
+      date,
+      !!sym(strx("clones", diff)) := "count",
+      !!sym(strx("unique_clones", diff)) := "uniques"
+      )
+  
+  gh_json_views <- gh_json_views %>%
+    .$views %>%
+    map_dfr(as.data.frame) %>%
+    mutate(date = as.Date(timestamp, format = "%Y-%m-%d")) %>%
+    select(
+      date,
+      !!sym(strx("views", diff)) := "count",
+      !!sym(strx("unique_views", diff)) := "uniques"
+      )
+  
+  gh_out <-
+    gh_json_clones %>%
+    full_join(gh_json_views, by = "date")
+    
+  gh_out
+}
+
+gh_r_df <- get_gh_data(owner = "microsoft", repo = "vivainsights", diff = "R")
+gh_py_df <- get_gh_data(owner = "microsoft", repo = "vivainsights-py", diff = "Py")
+gh_all <-
+  gh_r_df %>%
+  full_join(gh_py_df, by = "date")
+
+```
+
+```{r join-data, echo=FALSE,message=FALSE,warning=FALSE}
+pypi_dl_agg <-
+  pypi_dl %>%
+  group_by(date) %>%
+  summarise(PyPI = sum(downloads, na.rm = TRUE)) %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"))
+
+full_dl_snapshot <-
+  cran_dl %>%
+  full_join(
+    pypi_dl_agg,
+    by = "date"
+  ) %>%
+  full_join(
+    gh_all,
+    by = "date"
+  )
+
+full_dl_snapshot %>%
+  write_rds(file = paste0(
+    "data/",
+    pkg_name,
+    "_",
+    min(full_dl_snapshot$date, na.rm = TRUE),
+    "_",
+    max(full_dl_snapshot$date, na.rm = TRUE),
+    ".rds"
+  ))
+
+
+# Read RDS back in and bind
+full_dl <-
+  list.files(path = here::here("data")) %>%
+  .[grepl(x = ., pattern = "[.]rds$", ignore.case = TRUE)] %>%
+  purrr::map(function(x) {
+    read_rds(paste0(here::here("data"), "/", x))
+  }) %>%
+  bind_rows() %>%
+  unique()
+```
+
+This report captures `r round(n_distinct(full_dl$date))` days of data ranging from `r min(full_dl$date)` to `r max(full_dl$date)`.
+
+# Summary
+
+The boxes below show the headline summary statistics of the R and Python repositories. 
+
+Numbers are aggregated for the last 30 days, excluding the current day and the day before due to incomplete data. 
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+full_dl_l30 <-
+  full_dl %>%
+  arrange(date) %>%
+  head(nrow(.) - 2) %>% # Remove last one day
+  tail(30) %>% # last 30 days
+  summarise(
+    across(
+      .cols = -date,
+      .fns = ~sum(., na.rm = TRUE)
+    )
+  )
+
+shiny::fluidRow(
+  summaryBox(
+    "CRAN Downloads (Last 30 days)",
+    full_dl_l30[["CRAN"]],
+    width = 3,
+    icon = "fa fa-cloud-download",
+    style = "info"
+  ),
+  
+  summaryBox(
+    "PyPI Downloads (Last 30 days)",
+    full_dl_l30[["PyPI"]],
+    width = 3,
+    icon = "fa fa-cloud-download",
+    style = "info"
+  ),
+  
+  summaryBox(
+    "GitHub R Downloads (Last 30 days)",
+    full_dl_l30[["gh_clones_R"]],
+    width = 3,
+    icon = "fa fa-cloud-download",
+    style = "secondary"
+  ),
+  
+  summaryBox(
+    "GitHub Python Downloads (Last 30 days)",
+    full_dl_l30[["gh_clones_Py"]],
+    width = 3,
+    icon = "fa fa-cloud-download",
+    style = "secondary"
+  )
+)
+
+```
+
+
+# Download statistics - CRAN, PyPI, GitHub
+
+The following plot shows the download statistics of the libraries from CRAN (R), PyPI (Python), and GitHub (R, Python). For GitHub, this refers to clones of the repositories. 
+
+In general, download statistics from CRAN and PyPI should be more representative of actual user download and updates, whereas GitHub clones may reflect developer / collaborator activity.
+
+## Plots
+
+### Daily downloads from CRAN and PyPI
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+ts_plot <- 
+  full_dl %>%
+  select(date, CRAN, PyPI) %>%
+  ggplot(aes(x = date)) +
+  geom_smooth(aes(y = CRAN, color = "CRAN"), size = 1) +
+  geom_smooth(aes(y = PyPI, color = "PyPI"), size = 1)+
+  scale_color_manual(values = c("CRAN" = "#1f77b4", "PyPI" = "#ff7f0e")) +
+  labs(title = "CRAN and PyPI Downloads",
+       x = "Date",
+       y = "Downloads",
+       color = "Source") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12)) +
+  wpa::theme_wpa_basic()
+
+plotly::ggplotly(ts_plot)
+```
+
+### GitHub daily clones
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+ts_plot_clones <- 
+  full_dl %>%
+  select(date, R_GitHub = "gh_clones_R", Python_GitHub = "gh_clones_Py") %>%
+  ggplot(aes(x = date)) +
+  geom_smooth(aes(y = R_GitHub, color = "R_GitHub"), size = 1) +
+  geom_smooth(aes(y = Python_GitHub, color = "Python_GitHub"), size = 1) +
+  scale_color_manual(values = c("R_GitHub" = "#1f77b4", "Python_GitHub" = "#ff7f0e")) +
+  labs(title = "GitHub clones",
+       x = "Date",
+       y = "Clones",
+       color = "Source") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12)) +
+  wpa::theme_wpa_basic()
+
+plotly::ggplotly(ts_plot_clones)
+```
+
+## GitHub repository views
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+ts_plot_uviews <- 
+  full_dl %>%
+  select(date, gh_unique_views_R, gh_unique_views_Py) %>%
+  ggplot(aes(x = date)) +
+  geom_smooth(aes(y = gh_unique_views_R, color = "R"), size = 1) +
+  geom_smooth(aes(y = gh_unique_views_Py, color = "Py"), size = 1) +
+  scale_color_manual(values = c("R" = "#1f77b4", "Py" = "#ff7f0e")) +
+  labs(title = "GitHub Unique Views",
+       x = "Date",
+       y = "Unique views",
+       color = "Source") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12)) +
+  wpa::theme_wpa_basic()
+
+plotly::ggplotly(ts_plot_uviews)
+```
+
+## Tables
+
+### Weekly
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+int_dt <- function(x) {
+  DT::datatable(
+    x,
+    extensions = c('Buttons',
+                   'FixedColumns'),
+    options = list(
+      dom = 'Blfrtip',
+      fixedColumns = list(leftColumns = TRUE),
+      scrollX = TRUE,
+      buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+      lengthMenu = list(c(-1, 10, 25, 50),
+                        c("All", 10, 25, 50))
+    )
+  )
+}
+
+full_dl %>%
+  mutate(date = lubridate::floor_date(date, unit = "week")) %>%
+  group_by(date) %>%
+  summarise(
+    across(
+      .cols = everything(),
+      .fns = ~sum(., na.rm = TRUE)
+    )
+  ) %>%
+  int_dt()
+```
+
+### Monthly
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+full_dl %>%
+  mutate(date = lubridate::floor_date(date, unit = "month")) %>%
+  group_by(date) %>%
+  summarise(
+    across(
+      .cols = everything(),
+      .fns = ~sum(., na.rm = TRUE)
+    )
+  ) %>%
+  int_dt()
+```
+
+### Daily
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+full_dl %>%
+  DT::datatable(
+        extensions = c('Buttons',
+                       'FixedColumns'),
+        options = list(
+          dom = 'Blfrtip',
+          fixedColumns = list(leftColumns = TRUE),
+          scrollX = TRUE,
+          buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+          lengthMenu = list(c(-1, 10, 25, 50),
+                            c("All", 10, 25, 50))
+        )
+  )
+```
+
+## Notes
+
+- The download figures may sometimes show irregularities, as new releases tend to trigger more downloads due to automated package archiving.
+- Package updates also count towards downloads
