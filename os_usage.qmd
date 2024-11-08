@@ -65,63 +65,6 @@ if (status_code(response) == 200) {
 }
 ```
 
-```{r gh, echo=FALSE,message=FALSE,warning=FALSE}
-# Function to get GitHub traffic data
-get_gh_data <- function(owner = "microsoft", repo, diff) {
-  
-  # Set GitHub PAT
-  gh_pat <- Sys.getenv("GH_PAT")
-  
-  # Define the endpoint
-  endpoint <- "GET /repos/{username}/{repo}/traffic/"
-  
-  # Fetch clones data
-  gh_json_clones <- gh(paste0(endpoint, "clones"), username = owner, repo = repo, .token = gh_pat)
-  
-  # Fetch views data
-  gh_json_views <- gh(paste0(endpoint, "views"), username = owner, repo = repo, .token = gh_pat)
-  
-  # Helper function to create column names
-  strx <- function(metric, diff) {
-    paste0("gh_", metric, "_", diff)
-  }
-  
-  # Process clones data
-  gh_json_clones <- gh_json_clones %>%
-    .$clones %>%
-    map_dfr(as.data.frame) %>%
-    mutate(date = as.Date(timestamp, format = "%Y-%m-%d")) %>%
-    select(
-      date,
-      !!sym(strx("clones", diff)) := "count",
-      !!sym(strx("unique_clones", diff)) := "uniques"
-    )
-  
-  # Process views data
-  gh_json_views <- gh_json_views %>%
-    .$views %>%
-    map_dfr(as.data.frame) %>%
-    mutate(date = as.Date(timestamp, format = "%Y-%m-%d")) %>%
-    select(
-      date,
-      !!sym(strx("views", diff)) := "count",
-      !!sym(strx("unique_views", diff)) := "uniques"
-    )
-  
-  # Combine clones and views data
-  gh_out <- gh_json_clones %>%
-    full_join(gh_json_views, by = "date")
-    
-  gh_out
-}
-
-gh_r_df <- get_gh_data(owner = "microsoft", repo = "vivainsights", diff = "R")
-gh_py_df <- get_gh_data(owner = "microsoft", repo = "vivainsights-py", diff = "Py")
-gh_all <-
-  gh_r_df %>%
-  full_join(gh_py_df, by = "date")
-
-```
 
 ```{r join-data, echo=FALSE,message=FALSE,warning=FALSE}
 pypi_dl_agg <-
@@ -135,10 +78,6 @@ full_dl_snapshot <-
   full_join(
     pypi_dl_agg,
     by = "date"
-  ) %>%
-  full_join(
-    gh_all,
-    by = "date"
   )
 
 full_dl_snapshot %>%
@@ -151,7 +90,6 @@ full_dl_snapshot %>%
     max(full_dl_snapshot$date, na.rm = TRUE),
     ".rds"
   ))
-
 
 # Read RDS back in and bind
 full_dl <-
@@ -200,33 +138,17 @@ shiny::fluidRow(
     width = 3,
     icon = "fa fa-cloud-download",
     style = "info"
-  ),
-  
-  summaryBox(
-    "GitHub R Downloads (Last 30 days)",
-    full_dl_l30[["gh_clones_R"]],
-    width = 3,
-    icon = "fa fa-cloud-download",
-    style = "secondary"
-  ),
-  
-  summaryBox(
-    "GitHub Python Downloads (Last 30 days)",
-    full_dl_l30[["gh_clones_Py"]],
-    width = 3,
-    icon = "fa fa-cloud-download",
-    style = "secondary"
   )
 )
 
 ```
 
 
-# Download statistics - CRAN, PyPI, GitHub
+# Download statistics - CRAN, PyPI
 
-The following plot shows the download statistics of the libraries from CRAN (R), PyPI (Python), and GitHub (R, Python). For GitHub, this refers to clones of the repositories. 
+The following plot shows the download statistics of the libraries from CRAN (R) and PyPI (Python). 
 
-In general, download statistics from CRAN and PyPI should be more representative of actual user download and updates, whereas GitHub clones may reflect developer / collaborator activity.
+In general, download statistics from CRAN and PyPI should be more representative of actual user download and updates.
 
 ## Plots
 
@@ -252,120 +174,6 @@ ts_plot <-
         legend.text = element_text(size = 12))
 
 plotly::ggplotly(ts_plot)
-```
-
-### GitHub daily clones
-
-```{r echo=FALSE,message=FALSE,warning=FALSE}
-ts_plot_clones <- 
-  full_dl %>%
-  select(date, R_GitHub = "gh_clones_R", Python_GitHub = "gh_clones_Py") %>%
-  ggplot(aes(x = date)) +
-  geom_smooth(aes(y = R_GitHub, color = "R_GitHub"), size = 1) +
-  geom_smooth(aes(y = Python_GitHub, color = "Python_GitHub"), size = 1) +
-  scale_color_manual(values = c("R_GitHub" = "#1f77b4", "Python_GitHub" = "#ff7f0e")) +
-  labs(title = "GitHub clones",
-       x = "Date",
-       y = "Clones",
-       color = "Source") +
-  theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        axis.title = element_text(size = 14),
-        axis.text = element_text(size = 12),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 12))
-
-plotly::ggplotly(ts_plot_clones)
-```
-
-## GitHub repository views
-
-```{r echo=FALSE,message=FALSE,warning=FALSE}
-ts_plot_uviews <- 
-  full_dl %>%
-  select(date, gh_unique_views_R, gh_unique_views_Py) %>%
-  ggplot(aes(x = date)) +
-  geom_smooth(aes(y = gh_unique_views_R, color = "R"), size = 1) +
-  geom_smooth(aes(y = gh_unique_views_Py, color = "Py"), size = 1) +
-  scale_color_manual(values = c("R" = "#1f77b4", "Py" = "#ff7f0e")) +
-  labs(title = "GitHub Unique Views",
-       x = "Date",
-       y = "Unique views",
-       color = "Source") +
-  theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        axis.title = element_text(size = 14),
-        axis.text = element_text(size = 12),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 12))
-
-plotly::ggplotly(ts_plot_uviews)
-```
-
-## Tables
-
-### Weekly
-
-```{r echo=FALSE,message=FALSE,warning=FALSE}
-int_dt <- function(x) {
-  DT::datatable(
-    x,
-    extensions = c('Buttons',
-                   'FixedColumns'),
-    options = list(
-      dom = 'Blfrtip',
-      fixedColumns = list(leftColumns = TRUE),
-      scrollX = TRUE,
-      buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
-      lengthMenu = list(c(-1, 10, 25, 50),
-                        c("All", 10, 25, 50))
-    )
-  )
-}
-
-full_dl %>%
-  mutate(date = lubridate::floor_date(date, unit = "week")) %>%
-  group_by(date) %>%
-  summarise(
-    across(
-      .cols = everything(),
-      .fns = ~sum(., na.rm = TRUE)
-    )
-  ) %>%
-  int_dt()
-```
-
-### Monthly
-
-```{r echo=FALSE,message=FALSE,warning=FALSE}
-full_dl %>%
-  mutate(date = lubridate::floor_date(date, unit = "month")) %>%
-  group_by(date) %>%
-  summarise(
-    across(
-      .cols = everything(),
-      .fns = ~sum(., na.rm = TRUE)
-    )
-  ) %>%
-  int_dt()
-```
-
-### Daily
-
-```{r echo=FALSE,message=FALSE,warning=FALSE}
-full_dl %>%
-  DT::datatable(
-        extensions = c('Buttons',
-                       'FixedColumns'),
-        options = list(
-          dom = 'Blfrtip',
-          fixedColumns = list(leftColumns = TRUE),
-          scrollX = TRUE,
-          buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
-          lengthMenu = list(c(-1, 10, 25, 50),
-                            c("All", 10, 25, 50))
-        )
-  )
 ```
 
 ## Notes
