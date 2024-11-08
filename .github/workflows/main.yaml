@@ -3,6 +3,8 @@ name: Render README
 on:
   push:
     branches: [main]
+   schedule:
+    - cron: '0 0 1,15 * *'  # Runs at midnight on the 1st and 15th of every month
     
 jobs:
   render:
