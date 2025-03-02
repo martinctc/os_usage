@@ -20,7 +20,12 @@ jobs:
         uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: LATEST
-          
+      
+      - name: Install R
+        run: sudo apt-get install -y r-base
+        
+      - name: Add R to PATH
+        run: echo "/usr/local/bin" >> $GITHUB_PATH
           
       - name: Install R dependencies
         run: |
