@@ -20,33 +20,33 @@ jobs:
         uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: LATEST
-      
-      - name: Install R
-        run: sudo apt-get install -y r-base
-        
-      - name: Add R to PATH
-        run: echo "/usr/local/bin" >> $GITHUB_PATH
-          
-      - name: Install R dependencies
-        run: |
-          Rscript -e "install.packages('renv', repos = 'https://packagemanager.posit.co/cran/latest')"
-          Rscript -e "renv::restore(repos = 'https://packagemanager.posit.co/cran/latest')"
-        
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Set up renv
+        uses: r-lib/actions/setup-renv@v2
+
       - name: Render Quarto document
+        env:
+          PEPY_API_KEY: ${{ secrets.PEPY_API_KEY }}
         run: |
           quarto render readme.qmd --to gfm --output README.md
-        
+
       - name: Render os_usage.qmd as static HTML
+        env:
+          PEPY_API_KEY: ${{ secrets.PEPY_API_KEY }}
         run: |
           quarto render os_usage.qmd --to html --output os_usage.html
 
-      - name: Commit README.md
+      - name: Commit changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git add os_usage.html
-          git diff-index --quiet HEAD || git commit -m "feat: update os_usage.html"
+          git add README.md os_usage.html data/
+          git diff-index --quiet HEAD || git commit -m "chore: update download snapshots and rendered report"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

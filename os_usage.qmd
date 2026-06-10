@@ -91,7 +91,8 @@ full_dl_snapshot %>%
     ".rds"
   ))
 
-# Read RDS back in and bind
+# Read RDS back in and bind, taking the max value per date when sources overlap
+# (different snapshots may have partial values for the same day).
 full_dl <-
   list.files(path = here::here("data")) %>%
   .[grepl(x = ., pattern = "[.]rds$", ignore.case = TRUE)] %>%
@@ -99,7 +100,58 @@ full_dl <-
     read_rds(paste0(here::here("data"), "/", x))
   }) %>%
   bind_rows() %>%
-  unique()
+  group_by(date) %>%
+  summarise(
+    CRAN = suppressWarnings(max(CRAN, na.rm = TRUE)),
+    PyPI = suppressWarnings(max(PyPI, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    CRAN = ifelse(is.finite(CRAN), CRAN, NA_real_),
+    PyPI = ifelse(is.finite(PyPI), PyPI, NA_real_)
+  ) %>%
+  arrange(date)
+```
+
+```{r lifetime-totals, echo=FALSE,message=FALSE,warning=FALSE}
+# CRAN lifetime: query cranlogs for the full available history.
+cran_lifetime <- tryCatch({
+  cranlogs::cran_downloads(
+    packages = pkg_name,
+    from = "2013-01-01",
+    to = as.character(Sys.Date() - 1)
+  ) %>%
+    summarise(total = sum(count, na.rm = TRUE)) %>%
+    pull(total)
+}, error = function(e) NA_integer_)
+
+# PyPI lifetime: pepy.tech exposes a true lifetime total. Requires PEPY_API_KEY
+# in the environment (set as a GitHub Actions secret). Falls back to summing the
+# accumulated daily snapshots when the key is unavailable.
+pepy_key <- Sys.getenv("PEPY_API_KEY", unset = "")
+pypi_lifetime <- NA_integer_
+pypi_lifetime_source <- "snapshots"
+
+if (nzchar(pepy_key)) {
+  pepy_resp <- tryCatch(
+    httr::GET(
+      paste0("https://api.pepy.tech/api/v2/projects/", pkg_name),
+      httr::add_headers(`X-API-Key` = pepy_key)
+    ),
+    error = function(e) NULL
+  )
+  if (!is.null(pepy_resp) && httr::status_code(pepy_resp) == 200) {
+    pepy_data <- jsonlite::fromJSON(httr::content(pepy_resp, "text", encoding = "UTF-8"))
+    if (!is.null(pepy_data$total_downloads)) {
+      pypi_lifetime <- as.numeric(pepy_data$total_downloads)
+      pypi_lifetime_source <- "pepy.tech"
+    }
+  }
+}
+
+if (is.na(pypi_lifetime)) {
+  pypi_lifetime <- sum(full_dl$PyPI, na.rm = TRUE)
+}
 ```
 
 This report captures `r round(n_distinct(full_dl$date))` days of data ranging from `r min(full_dl$date)` to `r max(full_dl$date)`.
@@ -138,6 +190,22 @@ shiny::fluidRow(
     width = 3,
     icon = "fa fa-cloud-download",
     style = "info"
+  ),
+
+  summaryBox(
+    "CRAN Downloads (Lifetime)",
+    cran_lifetime,
+    width = 3,
+    icon = "fa fa-trophy",
+    style = "success"
+  ),
+
+  summaryBox(
+    paste0("PyPI Downloads (Lifetime, ", pypi_lifetime_source, ")"),
+    pypi_lifetime,
+    width = 3,
+    icon = "fa fa-trophy",
+    style = "success"
   )
 )
 
