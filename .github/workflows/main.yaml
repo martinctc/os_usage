@@ -34,6 +34,9 @@ jobs:
       - name: Set up renv
         uses: r-lib/actions/setup-renv@v2
 
+      - name: Validate existing snapshots
+        run: Rscript scripts/validate_snapshots.R
+
       - name: Render Quarto document
         env:
           PEPY_API_KEY: ${{ secrets.PEPY_API_KEY }}

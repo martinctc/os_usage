@@ -1,17 +1,19 @@
 ---
-title: "vivainsights Download/Usage Report"
+title: "`r params$pkg_name` Download/Usage Report"
 author: "Martin Chan"
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+params:
+  pkg_name: "vivainsights"
+  start_date: "2023-08-01"     # First public release of the vivainsights R/Python packages
+  keep_snapshots: 26            # Retain ~1 year of bi-monthly snapshots in data/
 ---
 
-The notebook collects, aggregates, and visualizes the download numbers for the 'vivainsights' R and Python packages:
+This notebook collects, aggregates, and visualizes download numbers for the **`r params$pkg_name`** R and Python packages:
 
-- [R](https://microsoft.github.io/vivainsights/)
-- [Python](https://microsoft.github.io/vivainsights-py/)
+- [R](https://microsoft.github.io/vivainsights/) — distributed on the Comprehensive R Archive Network (CRAN).
+- [Python](https://microsoft.github.io/vivainsights-py/) — distributed on the Python Package Index (PyPI).
 
-The official repositories for open-source distribution of R and Python packages are the Comprehensive R Archive Network (CRAN) and Python Package Index (PyPI) respectively. 
-
-There is no direct way to track package _usage_, but the figures can be estimated by combining documentation views and other data sources.
+Download counts are an imperfect proxy for usage — CI runs, mirrors, and automated archiving all inflate them — but they are the most consistently available signal across registries. See the [methodology section in the README](./README.md#methodology) for the caveats.
 
 ```{r setup, echo=FALSE,message=FALSE,warning=FALSE}
 knitr::opts_chunk$set(
@@ -22,30 +24,26 @@ knitr::opts_chunk$set(
 
 library(dplyr)
 library(purrr)
-library(tidyr)
 library(ggplot2)
-library(shiny)
 library(readr)
 library(cranlogs)
-library(gh) # GitHub API
 library(httr)
 library(jsonlite)
+library(htmltools)
 library(summaryBox) # remotes::install_github("deepanshu88/summaryBox")
 
-pkg_name <- "vivainsights"
+pkg_name <- params$pkg_name
 ```
 
 
-```{r echo=FALSE,message=FALSE,warning=FALSE}
-start_date <- as.Date("2023-08-01")
-end_date <- as.Date(Sys.Date(), format = "%Y-%m-%d")
+```{r cran-fetch, echo=FALSE,message=FALSE,warning=FALSE}
+start_date <- as.Date(params$start_date)
+end_date   <- Sys.Date()
+
 cran_dl <-
   cranlogs::cran_downloads(packages = pkg_name,
                            from = start_date,
-                           to = end_date)
-
-cran_dl <-
-  cran_dl %>%
+                           to = end_date) %>%
   dplyr::select(date, CRAN = "count")
 ```
 
@@ -101,6 +99,21 @@ full_dl_snapshot %>%
     max(full_dl_snapshot$date, na.rm = TRUE),
     ".rds"
   ))
+
+# Prune older snapshots so data/ stays bounded. Keeps the N most-recently
+# modified rds files for this package (configurable via params$keep_snapshots).
+snapshot_pattern <- paste0("^", pkg_name, "_.*\\.rds$")
+all_pkg_snapshots <- list.files(
+  path = here::here("data"),
+  pattern = snapshot_pattern,
+  full.names = TRUE
+)
+if (length(all_pkg_snapshots) > params$keep_snapshots) {
+  to_remove <- all_pkg_snapshots %>%
+    .[order(file.mtime(.), decreasing = TRUE)] %>%
+    .[(params$keep_snapshots + 1L):length(.)]
+  file.remove(to_remove)
+}
 
 # Read RDS back in. When the same date appears in multiple snapshots, prefer
 # the value from the most recently-written snapshot (filenames embed the
@@ -188,7 +201,8 @@ full_dl_l30 <-
     )
   )
 
-shiny::fluidRow(
+htmltools::div(
+  class = "row",
   summaryBox(
     "CRAN Downloads (Last 30 days)",
     full_dl_l30[["CRAN"]],
@@ -196,7 +210,6 @@ shiny::fluidRow(
     icon = "fa fa-cloud-download",
     style = "info"
   ),
-  
   summaryBox(
     "PyPI Downloads (Last 30 days)",
     full_dl_l30[["PyPI"]],
@@ -204,7 +217,6 @@ shiny::fluidRow(
     icon = "fa fa-cloud-download",
     style = "info"
   ),
-
   summaryBox(
     "CRAN Downloads (Lifetime)",
     cran_lifetime,
@@ -212,7 +224,6 @@ shiny::fluidRow(
     icon = "fa fa-trophy",
     style = "success"
   ),
-
   summaryBox(
     paste0("PyPI Downloads (Lifetime, ", pypi_lifetime_source, ")"),
     pypi_lifetime,
@@ -235,18 +246,39 @@ In general, download statistics from CRAN and PyPI should be more representative
 
 ### Daily downloads from CRAN and PyPI
 
-```{r echo=FALSE,message=FALSE,warning=FALSE}
-ts_plot <- 
+Thin lines show raw daily counts; thicker lines show a 14-day centred rolling mean to highlight the trend without hiding individual spikes.
+
+```{r daily-plot, echo=FALSE,message=FALSE,warning=FALSE}
+roll_mean <- function(x, k = 14) {
+  stats::filter(x, rep(1 / k, k), sides = 2) %>% as.numeric()
+}
+
+plot_data <-
   full_dl %>%
-  select(date, CRAN, PyPI) %>%
-  ggplot(aes(x = date)) +
-  geom_smooth(aes(y = CRAN, color = "CRAN"), size = 1) +
-  geom_smooth(aes(y = PyPI, color = "PyPI"), size = 1)+
-  scale_color_manual(values = c("CRAN" = "#1f77b4", "PyPI" = "#ff7f0e")) +
+  arrange(date) %>%
+  mutate(
+    CRAN_smooth = roll_mean(CRAN),
+    PyPI_smooth = roll_mean(PyPI)
+  ) %>%
+  select(date, CRAN, PyPI, CRAN_smooth, PyPI_smooth) %>%
+  tidyr::pivot_longer(
+    cols = -date,
+    names_to = c("source", "series"),
+    names_sep = "_",
+    values_to = "downloads"
+  ) %>%
+  mutate(series = ifelse(is.na(series), "raw", series))
+
+ts_plot <-
+  ggplot(plot_data, aes(x = date, y = downloads, colour = source, alpha = series, linewidth = series)) +
+  geom_line() +
+  scale_colour_manual(values = c("CRAN" = "#1f77b4", "PyPI" = "#ff7f0e")) +
+  scale_alpha_manual(values = c("raw" = 0.3, "smooth" = 1), guide = "none") +
+  scale_linewidth_manual(values = c("raw" = 0.4, "smooth" = 1.1), guide = "none") +
   labs(title = "CRAN and PyPI Downloads",
        x = "Date",
        y = "Downloads",
-       color = "Source") +
+       colour = "Source") +
   theme_minimal() +
   theme(plot.title = element_text(size = 16, face = "bold"),
         axis.title = element_text(size = 14),

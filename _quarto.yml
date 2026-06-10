@@ -3,3 +3,12 @@ project:
 
 editor: visual
 
+format:
+  html:
+    embed-resources: true
+    theme: cosmo
+    toc: true
+    toc-depth: 2
+  gfm:
+    preview-mode: raw
+

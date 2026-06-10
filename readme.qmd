@@ -80,6 +80,52 @@ quarto render readme.qmd   --to gfm  --output README.md
 - **Historical PyPI inflation.** Prior to commit `555bf76` the report mistakenly summed both `with_mirrors` and `without_mirrors` rows from pypistats, inflating daily PyPI values by ~3×. Snapshots written before that commit retain the inflated values; new snapshots will overwrite them as the rolling window advances.
 - **Lifetime totals exclude bots only as far as the upstream sources do.** Neither cranlogs nor pepy.tech filter all CI/mirror traffic.
 
+## Methodology
+
+### CRAN (`cranlogs`)
+
+`cranlogs.r-pkg.org` aggregates download logs from RStudio's CRAN mirror (`cloud.r-project.org`). Each row is one HTTP fetch of a package tarball or binary.
+
+- **Lifetime totals** are computed by querying from `2013-01-01` to today (`cranlogs` keeps logs from late 2012 onwards). For packages first released after 2013 the query still returns the correct count — pre-release dates simply report zero.
+- **Inflation factors to be aware of:** new releases trigger a download spike from automated builds, R install scripts, and Bioconductor/CI mirroring. Spikes the day after a release rarely reflect real user installs.
+- **Mirror coverage:** cranlogs only sees the RStudio mirror, not the dozens of other CRAN mirrors worldwide. The reported number is therefore a *lower bound* on actual CRAN downloads.
+
+### PyPI (daily — `pypistats`)
+
+`pypistats.org/api/packages/{pkg}/overall` returns a rolling **~180-day** window of daily counts, broken down into two categories:
+
+| Category | What it counts |
+|---|---|
+| `with_mirrors` | All download requests, including those routed via known mirror networks (e.g. Bandersnatch). |
+| `without_mirrors` | Same, with traffic from known mirror IP ranges subtracted. |
+
+**This report uses `with_mirrors` only** to match the convention pypistats.org displays on its own dashboards and badges. Summing both categories (as the report did prior to commit `555bf76`) double-counts and inflates the numbers by ~3×.
+
+Because the API only covers ~180 days, the daily series for older dates is reconstructed from `data/*.rds` snapshots written on each run. If snapshots are missing for a period (e.g. the late-2024 / 2025 outage), that period will appear as gaps in the plot.
+
+### PyPI (lifetime — `pepy.tech`)
+
+[pepy.tech](https://pepy.tech/) backs its totals with Google BigQuery's `bigquery-public-data.pypi.file_downloads`, which contains every PyPI download event since mid-2016. The `total_downloads` field returned by `/api/v2/projects/{pkg}` is the lifetime sum across all categories.
+
+- **Authentication:** requires a free API key (`X-API-Key` header). See the [setup section above](#pepy_api_key-secret-required-for-accurate-pypi-lifetime-totals).
+- **Fallback:** if `PEPY_API_KEY` is unset, the lifetime card shows the sum of accumulated daily snapshots and is labelled `(Lifetime, snapshots)` to make the reduced fidelity obvious.
+- **Bot filtering:** pepy.tech does *not* exclude CI traffic (pip installs from GitHub Actions, GitLab, etc. all count). This is the same caveat as pypistats, just over a longer window.
+
+### Snapshot retention
+
+Each render writes a snapshot named `data/{pkg}_{min_date}_{max_date}.rds`. To keep the directory bounded, the report prunes everything except the `keep_snapshots` most-recently-modified snapshots per package (default 26 ≈ one year of bi-monthly runs). Adjust via the `keep_snapshots` Quarto parameter in `os_usage.qmd`.
+
+### Reusing this report for another package
+
+The report is parameterized. Render it for any other CRAN+PyPI package by overriding the Quarto parameters:
+
+```bash
+quarto render os_usage.qmd \
+  -P pkg_name:somepackage \
+  -P start_date:2020-01-01 \
+  --to html --output some_report.html
+```
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md). In short: **do not hand-edit `README.md` or `os_usage.html`** — they are regenerated from `readme.qmd` and `os_usage.qmd` by CI.
