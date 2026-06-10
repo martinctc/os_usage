@@ -67,8 +67,12 @@ if (status_code(response) == 200) {
 
 
 ```{r join-data, echo=FALSE,message=FALSE,warning=FALSE}
+# pypistats returns one row per date per category ("with_mirrors" and
+# "without_mirrors"). Use with_mirrors only to avoid double-counting; this is
+# the convention pypistats.org itself displays.
 pypi_dl_agg <-
   pypi_dl %>%
+  dplyr::filter(category == "with_mirrors") %>%
   group_by(date) %>%
   summarise(PyPI = sum(downloads, na.rm = TRUE)) %>%
   mutate(date = as.Date(date, format = "%Y-%m-%d"))
@@ -91,24 +95,26 @@ full_dl_snapshot %>%
     ".rds"
   ))
 
-# Read RDS back in and bind, taking the max value per date when sources overlap
-# (different snapshots may have partial values for the same day).
+# Read RDS back in. When the same date appears in multiple snapshots, prefer
+# the value from the most recently-written snapshot (filenames embed the
+# snapshot's end date). This way the mirror-double-count fix applied to new
+# snapshots takes precedence over older, inflated PyPI values.
+snapshot_files <-
+  list.files(path = here::here("data"), full.names = TRUE) %>%
+  .[grepl(x = ., pattern = "[.]rds$", ignore.case = TRUE)]
+
 full_dl <-
-  list.files(path = here::here("data")) %>%
-  .[grepl(x = ., pattern = "[.]rds$", ignore.case = TRUE)] %>%
-  purrr::map(function(x) {
-    read_rds(paste0(here::here("data"), "/", x))
+  snapshot_files[order(file.mtime(snapshot_files))] %>%
+  purrr::imap(function(path, i) {
+    read_rds(path) %>% mutate(.snapshot_rank = i)
   }) %>%
   bind_rows() %>%
+  arrange(date, .snapshot_rank) %>%
   group_by(date) %>%
   summarise(
-    CRAN = suppressWarnings(max(CRAN, na.rm = TRUE)),
-    PyPI = suppressWarnings(max(PyPI, na.rm = TRUE)),
+    CRAN = dplyr::last(CRAN[!is.na(CRAN)], default = NA_real_),
+    PyPI = dplyr::last(PyPI[!is.na(PyPI)], default = NA_real_),
     .groups = "drop"
-  ) %>%
-  mutate(
-    CRAN = ifelse(is.finite(CRAN), CRAN, NA_real_),
-    PyPI = ifelse(is.finite(PyPI), PyPI, NA_real_)
   ) %>%
   arrange(date)
 ```
