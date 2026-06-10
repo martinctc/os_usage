@@ -49,19 +49,26 @@ cran_dl <-
   dplyr::select(date, CRAN = "count")
 ```
 
-```{r}
+```{r pypi-fetch, echo=FALSE,message=FALSE,warning=FALSE}
 api_endpoint <- paste0("https://pypistats.org/api/packages/", pkg_name, "/overall")
 
 response <- httr::GET(api_endpoint)
 
-if (status_code(response) == 200) {
-  data <- jsonlite::fromJSON(content(response, "text"))
-  pypi_dl <- data$data
-  
+if (httr::status_code(response) == 200) {
+  pypi_payload <- jsonlite::fromJSON(httr::content(response, "text", encoding = "UTF-8"))
+  pypi_dl <- pypi_payload$data
 } else {
-  
-  cat(paste0("Error: ", status_code(response), " - ", status_reason(response)))
-  
+  warning(sprintf(
+    "pypistats.org returned %s (%s); falling back to an empty PyPI frame for this render.",
+    httr::status_code(response),
+    httr::http_status(response)$reason
+  ))
+  pypi_dl <- data.frame(
+    category = character(),
+    date = character(),
+    downloads = integer(),
+    stringsAsFactors = FALSE
+  )
 }
 ```
 
