@@ -14,7 +14,7 @@ The full report is rendered to [`os_usage.html`](./os_usage.html) and
 refreshed by GitHub Actions on the 1st and 15th of every month (and on
 every push to `main`).
 
-This file was last rendered at 15/09/2026 02:28.
+This file was last rendered at 01/10/2026 03:06.
 
 ## What the report shows
 
